@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  my_container:
+    build: container_part5/
+  nginx_container:
+    build: nginx_container_part6/
+    ports:
+    - "80:8080"
+  
