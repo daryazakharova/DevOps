@@ -1,0 +1,172 @@
+services:                                                                      # блок, описывающий каждый отдельный сервис
+  postgres:                                                                    # имя сервиса 
+    image: postgres                                                            # использовать готовый публичный
+    restart: always
+    environment:                                                               # список переменных окружения
+      - POSTGRES_USER=postgres 
+      - POSTGRES_PASSWORD=postgres 
+      - POSTGRES_HOST=postgres
+    ports:
+      - "5432:5432"                                                             # отображение портов
+    volumes:
+      - ./src/services/database/init.sql:/docker-entrypoint-initdb.d/init.sql  #Инициализация базы данных со всеми сценариями SQL в каталоге базы данных на хост-компьютере.
+      - postgres:/var/lib/postgres/data                                        # путь к каталогу контейнера для хранения файлов базы данных 
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres -d postgres
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - postgres_net
+
+  rabbitmq:                                                                    # использовать готовый публичный
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    networks:
+      - postgres_net
+          
+  booking-service:
+    build: ./src/services/booking-service
+    environment:                
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres 
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=reservations_db
+      - RABBIT_MQ_HOST=rabbitmq
+      - RABBIT_MQ_PORT=5672
+      - RABBIT_MQ_USER=guest
+      - RABBIT_MQ_PASSWORD=guest
+      - RABBIT_MQ_QUEUE_NAME=messagequeue
+      - RABBIT_MQ_EXCHANGE=messagequeue-exchange
+      - HOTEL_SERVICE_HOST=hotel-service
+      - HOTEL_SERVICE_PORT=8082
+      - PAYMENT_SERVICE_HOST=payment-service
+      - PAYMENT_SERVICE_PORT=8084
+      - LOYALTY_SERVICE_HOST=loyalty-service
+      - LOYALTY_SERVICE_PORT=8085
+    depends_on:                                                                # ждать, когда будут готовы к работе другие сервисы
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+    
+  gateway-service:
+    build: ./src/services/gateway-service
+    ports: 
+    - "8087:8087"
+    environment: 
+    - SESSION_SERVICE_HOST=session-service
+    - SESSION_SERVICE_PORT=8081
+    - HOTEL_SERVICE_HOST=hotel-service
+    - HOTEL_SERVICE_PORT=8082
+    - BOOKING_SERVICE_HOST=booking-service
+    - BOOKING_SERVICE_PORT=8083
+    - PAYMENT_SERVICE_HOST=payment-service
+    - PAYMENT_SERVICE_PORT=8084
+    - LOYALTY_SERVICE_HOST=loyalty-service
+    - LOYALTY_SERVICE_PORT=8085
+    - REPORT_SERVICE_HOST=report-service
+    - REPORT_SERVICE_PORT=8086
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+
+  hotel-service:
+    build: ./src/services/hotel-service
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres 
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=hotels_db
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+
+  loyalty-service:
+    build: ./src/services/loyalty-service
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=balances_db
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+
+  payment-service:
+    build: ./src/services/payment-service
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=payments_db
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+
+  report-service:
+    build: ./src/services/report-service
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=statistics_db
+      - RABBIT_MQ_HOST=rabbitmq
+      - RABBIT_MQ_PORT=5672
+      - RABBIT_MQ_USER=guest
+      - RABBIT_MQ_PASSWORD=guest
+      - RABBIT_MQ_QUEUE_NAME=messagequeue
+      - RABBIT_MQ_EXCHANGE=messagequeue-exchange
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+
+  session-service:
+    build: ./src/services/session-service
+    ports: 
+    - "8081:8081"
+    environment:                
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres 
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=users_db
+    depends_on:                 
+      - postgres
+      - rabbitmq
+    networks:
+      - postgres_net
+    
+     
+volumes:
+  postgres: 
+networks:
+  postgres_net:
+    driver: bridge      
+
+# сеть postgres_net создается с помощью драйвера моста, 
+# который позволяет службе PostgreSQL взаимодействовать с другими службами или контейнерами в той же сети.  
